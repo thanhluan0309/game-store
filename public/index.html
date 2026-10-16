@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#2b1d14">
+<title>Bếp Loạn</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍳</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="overlay"></div>
+
+<!-- ============ HUD ============ -->
+<div id="hud" class="hidden">
+  <div id="orders"></div>
+  <div id="stats">
+    <div id="money" class="pill">💰 0</div>
+    <div id="rep" class="pill"><span>❤️</span><div class="rbar"><i></i></div></div>
+    <div id="timer" class="pill">4:00</div>
+    <button id="btnShop" class="ibtn shopbtn" aria-label="Cửa hàng">🛒</button>
+    <button id="btnMap" class="ibtn" aria-label="Xem toàn cảnh">🗺️</button>
+    <button id="btnHelp" class="ibtn" aria-label="Cách chơi">?</button>
+  </div>
+</div>
+<div id="evchips" class="hidden"></div>
+<div id="banner" class="hidden"></div>
+
+<!-- ============ CONTROLS ============ -->
+<div id="controls" class="hidden">
+  <div id="joyZone"><div id="joyBase"><div id="joyKnob"></div></div></div>
+  <button id="btnShout" class="cbtn"><span class="ic">📢</span></button>
+  <button id="btnDash" class="cbtn"><span class="ic">💨</span><span class="lb">Lướt</span></button>
+  <button id="btnWork" class="cbtn"><span class="ic">🔪</span><span class="lb">Thái</span></button>
+  <button id="btnAct" class="cbtn"><span class="ic">✋</span><span class="lb">Cầm</span></button>
+  <div id="shoutMenu" class="hidden"></div>
+</div>
+<div id="cd" class="hidden"></div>
+
+<!-- ============ HOME ============ -->
+<section id="home" class="screen">
+  <div class="home-wrap">
+    <div class="brand">
+      <div class="logo">🍳</div>
+      <h1>BẾP LOẠN</h1>
+      <p>Cả nhóm vào chung 1 link · mỗi đứa 1 đầu bếp<br>Thái 🔪 · Nấu 🍲 · Rửa 🧽 · Bưng 🏃 · <b>la hét là chính!</b></p>
+    </div>
+    <div class="card form">
+      <label for="nameIn">Tên mày là gì?</label>
+      <input id="nameIn" maxlength="12" placeholder="VD: Tèo" autocomplete="off" enterkeyhint="go">
+      <button id="btnJoinUrl" class="btn primary hidden">🚪 VÀO PHÒNG <b id="urlCode"></b></button>
+      <button id="btnCreate" class="btn primary">🍳 TẠO PHÒNG MỚI</button>
+      <div class="row">
+        <input id="codeIn" maxlength="4" placeholder="MÃ PHÒNG" autocomplete="off" autocapitalize="characters">
+        <button id="btnJoin" class="btn">VÀO</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LOBBY ============ -->
+<section id="lobby" class="screen hidden">
+  <div class="lobby-wrap">
+    <div class="card lobby-left">
+      <div class="room-head"><span>PHÒNG</span><b id="roomCode">----</b></div>
+      <div class="share">
+        <div id="qr" title="Bấm để phóng to"></div>
+        <div class="share-r">
+          <div class="hint">Gửi link này cho cả nhóm, hoặc cho tụi nó quét mã QR:</div>
+          <input id="linkIn" readonly>
+          <div class="row">
+            <button id="btnCopy" class="btn sm">📋 Copy</button>
+            <button id="btnShare" class="btn sm">📤 Gửi</button>
+          </div>
+        </div>
+      </div>
+      <div class="plabel">Đầu bếp trong phòng (<span id="pcount">0</span>/8)</div>
+      <div id="plist"></div>
+    </div>
+    <div class="card lobby-right">
+      <div class="plabel">Chọn vai của mày <small>(ai cũng làm được mọi việc, vai chỉ cho buff)</small></div>
+      <div id="roles"></div>
+      <button id="btnStart" class="btn primary big">▶ VÀO BẾP!</button>
+      <div id="waitHost">⏳ Đợi chủ phòng 👑 bấm bắt đầu…</div>
+      <button id="btnRecipes" class="btn sm ghost">📖 Cách chơi & công thức</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ END ============ -->
+<section id="end" class="screen hidden">
+  <div class="card end-card">
+    <h2 id="endTitle">⏰ HẾT GIỜ!</h2>
+    <div id="stars"></div>
+    <div id="finalScore"></div>
+    <div id="endStats"></div>
+    <div id="endPlayers"></div>
+    <div class="row center" id="endBtns">
+      <button id="btnAgain" class="btn primary">🔁 Chơi lại</button>
+      <button id="btnToLobby" class="btn">🏠 Phòng chờ</button>
+    </div>
+    <div id="endWait">⏳ Đợi chủ phòng 👑…</div>
+  </div>
+</section>
+
+<!-- ============ SHOP ============ -->
+<div id="shop" class="modal hidden">
+  <div class="card shop-card">
+    <button class="close ibtn" id="btnShopClose">✕</button>
+    <div class="shop-head"><h3>🛒 Cửa hàng</h3><span id="shopMoney" class="pill">💰 0</span><small>Tiền chung cả đội · game vẫn chạy khi đang mua!</small></div>
+    <div id="shopBody"></div>
+  </div>
+</div>
+
+<!-- ============ HELP ============ -->
+<div id="help" class="modal hidden">
+  <div class="card help-card">
+    <button class="close ibtn" id="btnHelpClose">✕</button>
+    <div class="help-cols">
+      <div>
+        <h3>🎮 Cách chơi</h3>
+        <ul>
+          <li>Khách vào cửa, tự ngồi vào bàn trống, xem menu rồi <b>giơ tay 🙋</b>. Ra đứng cạnh bàn bấm <b>📝 Ghi món</b> thì đơn mới hiện ở thanh trên (có số bàn).</li>
+          <li>Nấu xong bày lên <b>đĩa</b> → bưng ra <b>đúng bàn</b> bấm <b>🍽️ Bưng</b>. Khách ăn xong trả tiền rồi về.</li>
+          <li>Có <b>🤵 bồi bàn</b> thì chỉ cần đặt món lên <b>quầy RA MÓN 🛎️</b> (3 ô inox giữa bếp và phòng ăn), bồi bàn tự bưng tới đúng bàn.</li>
+          <li>Khách để lại <b>đĩa bẩn</b> trên bàn → tay không bấm <b>🧹 Dọn</b> → mang vào bồn rửa. Bàn bẩn thì khách mới không ngồi được!</li>
+          <li>Chờ lâu khách sẽ <b>càm ràm, chửi</b>, rồi bỏ về (−10 uy tín). Hết bàn thì khách xếp hàng ở cửa.</li>
+          <li><b>✋ Cầm/Đặt</b>: lấy đồ ở thùng, đặt lên bàn/thớt, bỏ vào nồi, cầm đĩa múc món…</li>
+          <li><b>🔪 Thái/Rửa</b>: đứng trước thớt có đồ sống, hoặc bồn có đĩa bẩn, bấm 1 lần là tự làm — <b>di chuyển là dừng</b>.</li>
+          <li>Nồi/chảo để quá lâu sẽ <b>khét</b> ⚫ → tay không bấm Cầm để đổ đi.</li>
+          <li>📢 La hét cho đồng đội, 💨 lướt cho nhanh, 🗺️ xem toàn cảnh nhà hàng.</li>
+          <li>Hết giờ hoặc <b>uy tín ❤️ về 0</b> là thua. Mỗi món giao xong được <b>cộng thêm giờ</b>!</li>
+          <li class="pc">Máy tính: <b>WASD</b> đi · <b>Space</b> cầm/đặt · <b>E</b> thái/rửa · <b>Shift</b> lướt · <b>1–8</b> la hét</li>
+        </ul>
+      </div>
+      <div>
+        <h3>📖 Công thức</h3>
+        <div class="recipe"><span>🥗</span><div><b>Salad rau</b><br>🥬 thái + 🍅 thái → đĩa</div></div>
+        <div class="recipe"><span>🍲</span><div><b>Súp cà chua</b><br>3× 🍅 thái → nồi → chín → đĩa</div></div>
+        <div class="recipe"><span>🥣</span><div><b>Súp hành</b><br>3× 🧅 thái → nồi → chín → đĩa</div></div>
+        <div class="recipe"><span>🥖</span><div><b>Bánh mì thịt</b><br>🍞 thái + 🥩 thái→chảo + 🥬 thái → đĩa</div></div>
+        <p class="small">Bưng càng nhanh tip càng nhiều. Khách bỏ về: <b>−10 uy tín</b>.</p>
+      </div>
+      <div>
+        <h3>🎲 Sự kiện (từ phút thứ 3)</h3>
+        <ul>
+          <li>🐀 <b>Chuột</b>: ăn vụng đồ trên bàn, ỉa bậy. Tay không đứng gần bấm <b>🔨 Đập</b>. Mua 🐱 mèo hoặc 🧪 thuốc.</li>
+          <li>🧯 <b>Cháy lò</b>: lửa lan dần. Mua bình cứu hỏa, cầm rồi bấm <b>Xịt</b>.</li>
+          <li>🕵️ <b>Thanh tra</b>: 30s để dọn sạch chuột, lửa, sàn bẩn 💩, đĩa bẩn. Đạt thì được thưởng, rớt thì bị phạt.</li>
+          <li>🔌 <b>Cúp điện</b>: bếp tắt · 🔥 <b>Giờ cao điểm</b>: khách đông, tiền x1.5 · 👑 <b>Khách VIP</b>: tiền x3, gấp lắm!</li>
+          <li>🧹 Cầm cây lau nhà đi qua chỗ bẩn là sạch. Sàn bẩn làm đi chậm.</li>
+          <li>👷 Nhân viên thuê trong 🛒 (🤵 bồi bàn bưng món + ghi món + dọn bàn, 📝 tiếp khách ghi món khéo, 🧽 rửa bát…). NV ghi món có thể làm khách vui 😊, chịu chờ lâu hơn. tự làm việc, <b>mỗi phút trả lương</b>. Hết tiền là họ nghỉ.</li>
+        </ul>
+        <div class="row" style="margin-top:6px;flex-wrap:wrap">
+          <button id="btnFull" class="btn sm">⛶ Toàn màn hình</button>
+          <button id="btnVoice" class="btn sm">🗣️ Giọng khách: Bật</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="disc" class="modal hidden"><div class="card center-card"><h3>😵 Mất kết nối</h3><p>Server bị ngắt hoặc mạng chập chờn.</p><button class="btn primary" onclick="location.reload()">🔄 Kết nối lại</button></div></div>
+<div id="rotate"><div class="phone">📱</div><b>Xoay ngang điện thoại để chơi nha!</b><small>(nhớ tắt khoá xoay màn hình)</small></div>
+
+<script type="module" src="game.js"></script>
+</body>
+</html>
