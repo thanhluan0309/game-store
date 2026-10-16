@@ -294,3 +294,37 @@ input:focus { border-color: var(--acc); }
 .edge span { display: flex; align-items: center; gap: 2px; background: var(--paper); border: 2.5px solid var(--ink); border-radius: 14px; padding: 2px 7px 0; font-size: 15px; font-weight: 800; box-shadow: 0 3px 0 rgba(0,0,0,.35); animation: bump 1s infinite; white-space: nowrap; }
 .edge.bad span { background: #ffb4b4; }
 #btnMap.on { background: var(--acc2); }
+
+/* ---------- ngày, lưu game, danh hiệu ---------- */
+.row.wrap { flex-wrap: wrap; }
+#saves { display: flex; flex-direction: column; gap: 5px; border-top: 2px dashed rgba(58,38,24,.3); padding-top: 8px; }
+#saves .plabel { font-size: 14px; }
+.save { display: grid; grid-template-columns: 1fr auto auto; gap: 5px; align-items: center; background: #fff; border: 2.5px solid var(--ink); border-radius: 12px; padding: 4px 6px 2px 10px; }
+.save b { font-size: 15px; line-height: 1.1; display: block; }
+.save small { font-size: 11px; opacity: .65; display: block; line-height: 1.2; }
+.save .btn { padding: 4px 9px 2px; }
+#hostBox { display: flex; flex-direction: column; gap: 6px; }
+#campInfo { font-size: 13px; font-weight: 700; text-align: center; line-height: 1.25; }
+#campInfo:empty { display: none; }
+.btn.daily { background: linear-gradient(135deg, #fff1b8, #ffd25a); font-size: 14px; white-space: normal; line-height: 1.2; padding: 6px 10px 4px; }
+.btn.daily small { display: block; font-weight: 600; font-size: 11px; opacity: .75; }
+#endSub { font-weight: 700; font-size: 15px; margin-top: 2px; }
+#endSub:empty { display: none; }
+#endSub.bad { color: var(--bad); }
+#endSub.good { color: #1f9d48; }
+#titles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 7px; margin: 6px 0 10px; text-align: left; }
+.tcard { border: 2.5px solid var(--c); border-radius: 14px; background: #fff; padding: 5px 8px 3px; display: grid; grid-template-columns: 34px 1fr; column-gap: 6px; align-items: center; position: relative; box-shadow: 0 3px 0 var(--c); animation: starIn .45s backwards; }
+.tcard .ti { font-size: 28px; line-height: 1; grid-row: 1 / 4; }
+.tcard .tt { font-weight: 800; font-size: 14px; line-height: 1.1; color: var(--acc); }
+.tcard .tn { font-size: 13px; font-weight: 700; line-height: 1.15; }
+.tcard .td { font-size: 11px; opacity: .65; line-height: 1.15; }
+.tcard .mvp { position: absolute; right: -5px; top: -9px; background: var(--ink); color: var(--acc2); font-size: 11px; font-weight: 800; border-radius: 8px; padding: 0 6px; }
+.end-card { max-height: 100%; overflow: auto; touch-action: pan-y; }
+#endWait .btn { margin-left: 6px; }
+.exit-card p { margin: 6px 0 10px; font-size: 15px; max-width: 340px; }
+.order.bday { background: linear-gradient(135deg, #ffe0f0, #ffb3d9); border-color: #c2185b; }
+.order.bday::before { content: '🎂x2'; position: absolute; right: -4px; top: -9px; font-size: 11px; font-weight: 800; background: #c2185b; color: #fff; border-radius: 8px; padding: 0 5px; }
+.order.ship { background: linear-gradient(135deg, #dcfce7, #9be8b4); border-color: #15803d; }
+.order.ship .tb { background: #15803d; }
+.nm.ship { background: #15803d; border-color: #fff; }
+.nm.tam { background: #7e3fa8; border-color: #fff; }

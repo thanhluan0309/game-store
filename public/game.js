@@ -31,13 +31,17 @@ const PHRASES = {
   leave: ['Thôi đi quán khác!', 'Một sao! Không bao giờ quay lại!', 'Quán dở ẹc!', 'Phí thời gian ghê!', 'Về! Về hết!'],
   happy: ['Ngon quá trời!', 'Tuyệt vời, năm sao!', 'Lần sau ghé nữa nha!', 'Đúng món rồi, cảm ơn nha!', 'Nhanh ghê, giỏi quá!'],
   wrong: ['Tui đâu có gọi món này!', 'Lộn món rồi em ơi!', 'Ủa ai gọi món này vậy?'],
+  tam: ['Ủa con, dạo này sao rồi?', 'Khoan đi đã, cô kể cái này nè!', 'Con nhỏ nhà bên mới có bồ đó!', 'Hồi đó cô còn trẻ á…', 'Giá thịt dạo này mắc quá trời!', 'Con có người yêu chưa?'],
 };
+const ING_NAME = { tomato: 'cà chua', lettuce: 'rau', onion: 'hành', meat: 'thịt', bread: 'bánh mì' };
+const fmtTime = s => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 const BASE_SPEED = 4.2, RADIUS = 0.28;
 
 /* ======================= state ======================= */
 let ws = null, myId = null, roomCode = null, hostId = null, cfg = null;
 let phase = 'home';
-let lobbyPlayers = [];
+let lobbyPlayers = [], lobbyInfo = null, lastEnd = null;
+let resumingCode = null;
 let snap = null;
 let MAP = null, MW = 0, MH = 0, world = null;
 const urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().slice(0, 4);
@@ -173,11 +177,13 @@ function goFullscreen() {
 /* ======================= networking ======================= */
 function connect(first) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}`);
-  ws.onopen = () => send(first);
-  ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; } handle(m); };
-  ws.onclose = () => {
-    ws = null;
+  const sock = new WebSocket(`${proto}://${location.host}`);
+  ws = sock;
+  sock.onopen = () => send(first);
+  sock.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; } if (ws === sock) handle(m); };
+  sock.onclose = () => {
+    if (ws === sock) ws = null;
+    if (sock.leaving) return;   // đã chủ động rời phòng, về màn hình chính rồi
     if (phase === 'home') { setBusy(false); toast('Không kết nối được server 😢', 'bad'); }
     else $('#disc').classList.remove('hidden');
   };
@@ -186,25 +192,80 @@ function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
 function handle(m) {
   switch (m.t) {
-    case 'err': toast(m.msg, 'bad'); setBusy(false); break;
+    case 'err': toast(m.msg, 'bad'); setBusy(false); resumingCode = null; break;
     case 'welcome':
       myId = m.id; roomCode = m.room; cfg = m;
       if (!world) buildWorld(m.map);
       history.replaceState(null, '', '?room=' + m.room);
+      // mã phòng cũ đã có người dùng: server cấp mã mới, bỏ file lưu theo mã cũ
+      if (resumingCode && resumingCode !== m.room) removeSave(resumingCode);
+      resumingCode = null;
       buildRoleCards();
       renderShop(true);
       showLobby();
       break;
     case 'lobby':
-      hostId = m.host; lobbyPlayers = m.players;
+      hostId = m.host; lobbyPlayers = m.players; lobbyInfo = m;
       renderLobby();
       if (m.state === 'lobby' && phase !== 'lobby') showLobby();
       break;
     case 'start': startPlaying(); break;
     case 's': onSnap(m); break;
     case 'ev': onEvent(m); break;
-    case 'end': showEnd(m); break;
+    case 'dayEnd': showDayEnd(m); break;
+    case 'save': putSave(m.data); break;
+    case 'closed': goHome(m.msg); break;
   }
+}
+
+/* ======================= lưu game (trên máy chủ phòng) ======================= */
+const SAVES_KEY = 'bl:saves';
+function loadSaves() { try { const l = JSON.parse(store.get(SAVES_KEY) || '[]'); return Array.isArray(l) ? l : []; } catch { return []; } }
+function writeSaves(list) {
+  // localStorage đầy thì bỏ bớt file cũ
+  for (let n = list.length; n > 0; n--) {
+    try { localStorage.setItem(SAVES_KEY, JSON.stringify(list.slice(0, n))); return; } catch { /* thử lại với ít file hơn */ }
+  }
+}
+function putSave(s) {
+  if (!s || !s.code) return;
+  writeSaves([s, ...loadSaves().filter(x => x.code !== s.code)].slice(0, 5));
+}
+function removeSave(code) { writeSaves(loadSaves().filter(x => x.code !== code)); renderSaves(); }
+function renderSaves() {
+  const list = loadSaves();
+  const box = $('#saves');
+  box.classList.toggle('hidden', !list.length);
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="plabel">📂 Quán đã lưu (chỉ máy này)</div>' + list.map(s => {
+    const when = new Date(s.at).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
+    const mid = s.mid ? ` · đang dở, còn ${fmtTime(s.left)}` : '';
+    return `<div class="save"><span><b>Phòng ${esc(s.code)} · Ngày ${s.day | 0}</b><small>💰 ${s.money | 0}${mid} · ${when}</small></span>` +
+      `<button class="btn sm primary" data-play="${esc(s.code)}">▶</button><button class="btn sm" data-del="${esc(s.code)}">🗑</button></div>`;
+  }).join('');
+}
+$('#saves').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.del) { if (confirm(`Xoá quán đã lưu ở phòng ${b.dataset.del}?`)) removeSave(b.dataset.del); return; }
+  const s = loadSaves().find(x => x.code === b.dataset.play);
+  if (!s) return;
+  resumingCode = s.code;
+  go({ t: 'resume', save: s });
+});
+
+// bị đưa ra khỏi phòng (chủ phòng thoát / mình tự rời)
+function goHome(msg) {
+  phase = 'home';
+  if (ws) { ws.leaving = true; try { ws.close(); } catch { /* ignore */ } ws = null; }
+  for (const id of ['#hud', '#controls', '#cd', '#evchips', '#shop', '#banner', '#shoutMenu', '#exitModal', '#help', '#disc']) $(id).classList.add('hidden');
+  clearPlayers();
+  snap = null; lobbyInfo = null; lastEnd = null; hostId = null;
+  show('home');
+  setBusy(false);
+  renderSaves();
+  camMode = 'overview';
+  fitCamera();
+  if (msg) toast(msg, 'good');
 }
 
 /* ======================= home ======================= */
@@ -235,6 +296,7 @@ $('#btnJoin').onclick = () => {
   if (code.length < 4) { toast('Mã phòng có 4 chữ', 'bad'); return; }
   go({ t: 'join', room: code });
 };
+renderSaves();
 $('#nameIn').addEventListener('keydown', e => { if (e.key === 'Enter') (urlRoom ? $('#btnJoinUrl') : $('#btnCreate')).click(); });
 $('#codeIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnJoin').click(); });
 
@@ -245,9 +307,9 @@ function showLobby() {
   phase = 'lobby';
   setBusy(false);
   show('lobby');
-  for (const id of ['#hud', '#controls', '#cd', '#evchips', '#shop', '#banner']) $(id).classList.add('hidden');
+  for (const id of ['#hud', '#controls', '#cd', '#evchips', '#shop', '#banner', '#exitModal']) $(id).classList.add('hidden');
   clearPlayers();
-  snap = null;
+  snap = null; lastEnd = null;
   $('#roomCode').textContent = roomCode;
   $('#linkIn').value = roomLink();
   renderQR();
@@ -295,16 +357,55 @@ function renderLobby() {
     c.textContent = n; c.classList.toggle('hidden', !n);
   }
   const isHost = hostId === myId;
-  $('#btnStart').classList.toggle('hidden', !isHost);
+  const L = lobbyInfo || {};
+  $('#hostBox').classList.toggle('hidden', !isHost);
   $('#waitHost').classList.toggle('hidden', isHost);
-  $('#btnAgain').classList.toggle('hidden', !isHost);
-  $('#btnToLobby').classList.toggle('hidden', !isHost);
+  $('#btnNew').classList.toggle('hidden', !isHost || !(L.resume || (L.camp && L.camp.day > 1)));
+  $('#btnLeave').textContent = isHost ? (L.camp ? '💾 Lưu & thoát' : '🚪 Đóng phòng') : '🚪 Rời phòng';
+  if (L.resume) {
+    $('#campInfo').innerHTML = `📂 Quán đang dở: <b>Ngày ${L.resume.day}</b>, còn ${fmtTime(L.resume.left)} · 💰 ${L.resume.money}`;
+    $('#btnStart').textContent = `▶ CHƠI TIẾP · NGÀY ${L.resume.day}`;
+  } else if (L.camp && (L.camp.day > 1 || L.camp.money)) {
+    $('#campInfo').innerHTML = `📂 Quán của tụi mày: <b>Ngày ${L.camp.day}</b> · 💰 ${L.camp.money}`;
+    $('#btnStart').textContent = `▶ VÀO BẾP · NGÀY ${L.camp.day}`;
+  } else {
+    $('#campInfo').innerHTML = '';
+    $('#btnStart').textContent = '▶ VÀO BẾP! · NGÀY 1';
+  }
+  if (L.daily) $('#btnDaily').innerHTML = `🎯 Thử thách hôm nay: ${L.daily.icon} ${esc(L.daily.name)}<small>${esc(L.daily.desc)}${dailyBest(L.daily.date) ? ` · kỷ lục máy mày: 💰${dailyBest(L.daily.date)}` : ''}</small>`;
+  // màn hết ngày
+  const E = lastEnd;
+  $('#endBtns').classList.toggle('hidden', !isHost);
   $('#endWait').classList.toggle('hidden', isHost);
+  if (E) {
+    $('#btnNext').textContent = E.mode === 'daily' ? '🔁 Chơi lại thử thách' : E.passed ? `▶ Sang ngày ${E.next}` : `🔁 Làm lại ngày ${E.day}`;
+    $('#btnSaveExit').textContent = E.mode === 'camp' || L.camp ? '💾 Lưu & thoát' : '🚪 Đóng phòng';
+  }
 }
 
-$('#btnStart').onclick = () => { send({ t: 'start' }); goFullscreen(); };
-$('#btnAgain').onclick = () => send({ t: 'start' });
+$('#btnStart').onclick = () => { send({ t: 'start', kind: 'camp' }); goFullscreen(); };
+$('#btnDaily').onclick = () => { send({ t: 'start', kind: 'daily' }); goFullscreen(); };
+$('#btnNew').onclick = () => { if (confirm('Mở quán mới từ ngày 1? Quán đang có sẽ bị ghi đè.')) { send({ t: 'start', kind: 'new' }); goFullscreen(); } };
+$('#btnNext').onclick = () => send({ t: 'next' });
 $('#btnToLobby').onclick = () => send({ t: 'lobby' });
+$('#btnLeave').onclick = () => askExit();
+$('#btnLeave2').onclick = () => askExit();
+$('#btnSaveExit').onclick = () => askExit();
+$('#btnExit').onclick = () => askExit();
+$('#btnExitNo').onclick = () => $('#exitModal').classList.add('hidden');
+$('#exitModal').onclick = e => { if (e.target.id === 'exitModal') $('#exitModal').classList.add('hidden'); };
+$('#btnExitYes').onclick = () => { $('#exitModal').classList.add('hidden'); send({ t: 'exit' }); };
+function askExit() {
+  const isHost = hostId === myId, L = lobbyInfo || {};
+  const camp = L.camp || snap?.mode === 'camp';
+  $('#exitTitle').textContent = isHost ? (camp ? '💾 Lưu & thoát?' : '🚪 Đóng phòng?') : '🚪 Rời phòng?';
+  $('#exitText').innerHTML = isHost
+    ? `${camp ? 'Quán sẽ được lưu trên máy mày, lần sau vào lại ở màn hình chính.' : 'Thử thách hôm nay không lưu được.'}<br><b>Cả phòng sẽ thoát theo.</b>`
+    : 'Mày rời phòng thì các bạn vẫn chơi tiếp. Muốn vào lại thì nhập mã phòng.';
+  $('#btnExitYes').textContent = isHost ? (camp ? '💾 Lưu & thoát' : '🚪 Đóng phòng') : '🚪 Rời phòng';
+  $('#exitModal').classList.remove('hidden');
+}
+const dailyBest = date => Number(store.get('bl:daily:' + date)) || 0;
 $('#btnCopy').onclick = async () => {
   try { await navigator.clipboard.writeText(roomLink()); toast('Đã copy link! Dán vào nhóm chat đi 📋', 'good'); }
   catch { const i = $('#linkIn'); i.focus(); i.select(); toast('Giữ vào ô link để copy nha'); }
@@ -374,6 +475,8 @@ function banner(title, sub = '', cls = '', ms = 2600) {
 let lastCd = 0, lastSec = 999, lastMoney = 0;
 function startPlaying() {
   phase = 'playing';
+  lastEnd = null;
+  me.stun = 0;
   show(null);
   $('#help').classList.add('hidden');
   $('#hud').classList.remove('hidden');
@@ -389,24 +492,40 @@ function startPlaying() {
   fitCamera();
 }
 
-function showEnd(m) {
+function showDayEnd(m) {
   phase = 'ended';
-  for (const id of ['#controls', '#cd', '#shoutMenu', '#shop', '#evchips']) $(id).classList.add('hidden');
+  lastEnd = m;
+  for (const id of ['#controls', '#cd', '#shoutMenu', '#shop', '#evchips', '#exitModal']) $(id).classList.add('hidden');
   show('end');
-  $('#endTitle').textContent = m.reason === 'rep' ? '🚫 BỊ ĐÓNG CỬA!' : '⏰ HẾT GIỜ!';
-  $('#stars').innerHTML = [0, 1, 2].map(i => `<span class="${i < m.stars ? '' : 'off'}" style="animation-delay:${0.2 + i * 0.25}s">⭐</span>`).join('');
+  const sub = $('#endSub');
+  let good;
+  if (m.mode === 'daily') {
+    const key = 'bl:daily:' + m.daily.date, best = dailyBest(m.daily.date), isNew = m.earned > best;
+    if (isNew) store.set(key, String(m.earned));
+    $('#endTitle').textContent = m.reason === 'rep' ? '🚫 BỊ ĐÓNG CỬA!' : '🎯 XONG THỬ THÁCH!';
+    sub.className = isNew ? 'good' : '';
+    sub.innerHTML = `${m.daily.icon} ${esc(m.daily.name)} · ${isNew ? '🏅 KỶ LỤC MỚI (máy mày)!' : `Kỷ lục máy mày: 💰${best}`}`;
+    $('#stars').innerHTML = '';
+    good = isNew;
+  } else {
+    $('#endTitle').textContent = m.passed ? `🌙 XONG NGÀY ${m.day}!` : m.reason === 'rep' ? '🚫 BỊ ĐÓNG CỬA!' : `❌ TRƯỢT NGÀY ${m.day}`;
+    sub.className = m.passed ? 'good' : 'bad';
+    sub.textContent = m.passed ? `Đạt chỉ tiêu 🎯 ${m.target}💰 · mai là ngày ${m.next}` : m.reason === 'rep' ? 'Uy tín về 0, khách bỏ hết 😭 Làm lại ngày này nha' : `Chưa đủ chỉ tiêu 🎯 ${m.target}💰, làm lại ngày này nha`;
+    $('#stars').innerHTML = [0, 1, 2].map(i => `<span class="${i < m.stars ? '' : 'off'}" style="animation-delay:${0.2 + i * 0.25}s">⭐</span>`).join('');
+    good = m.passed;
+  }
   $('#finalScore').textContent = `💰 ${m.earned}`;
-  const el = Math.floor(m.elapsed);
-  $('#endStats').innerHTML = `${m.reason === 'rep' ? 'Uy tín về 0, khách bỏ hết 😭<br>' : ''}🍽️ ${m.served} món · 😡 ${m.failed} bàn bỏ về · ⏱ trụ ${Math.floor(el / 60)}:${String(el % 60).padStart(2, '0')} · Cấp ${m.level} · ${m.events} sự kiện<br><small>Mốc sao: ${m.thresholds.join(' / ')} 💰</small>`;
-  const best = Math.max(...m.players.map(p => p.sv || 0));
-  $('#endPlayers').innerHTML = m.players.map(p => {
-    const R = cfg.roles[p.role];
-    return `<div class="ep" style="--c:${R.color}">${R.emoji} <b>${esc(p.name)}</b>${best > 0 && p.sv === best ? ' 🏆' : ''}<br>🍽️${p.sv || 0} · 📝${p.od || 0} · 🔪${p.ch || 0} · 🧽${p.wa || 0} · 🐀${p.rk || 0} · 🧯${p.fx || 0}</div>`;
+  const thr = m.thresholds?.length ? `<br><small>Mốc sao: ${m.thresholds.join(' / ')} 💰 · Quỹ quán: 💰${m.money}</small>` : '';
+  $('#endStats').innerHTML = `🍽️ ${m.served} món · 😡 ${m.failed} khách bỏ về · ⏱ ${fmtTime(m.elapsed)} · ${m.events} sự kiện${thr}`;
+  $('#titles').innerHTML = m.titles.map((t, i) => {
+    const R = cfg.roles[t.role] || { color: '#999' };
+    return `<div class="tcard" style="--c:${R.color};animation-delay:${0.3 + i * 0.12}s">${t.mvp ? '<span class="mvp">👑 MVP</span>' : ''}<span class="ti">${t.icon}</span>` +
+      `<span class="tt">${esc(t.title)}</span><span class="tn">${esc(t.name)}${t.id === myId ? ' (mày)' : ''}</span><span class="td">${esc(t.desc)}</span></div>`;
   }).join('');
   renderLobby();
   camMode = 'overview';
   fitCamera();
-  if (m.stars >= 2) SFX.level(); else SFX.fail();
+  if (good) SFX.level(); else SFX.fail();
 }
 
 /* ======================= THREE setup ======================= */
@@ -988,8 +1107,13 @@ function makeWalker(k, w) {
   return { ...h, id: 'wk' + k, kind: k, name: cfg.shop[k].name, icon: cfg.shop[k].icon, dx: w.x, dy: w.y, da: w.a, tx: w.x, ty: w.y, ta: w.a, px: w.x, py: w.y, spd: 0, p: { h: k === 'host' ? 1 : 0 }, holdKey: '', holdVis: null };
 }
 function makeCustomer(cu) {
-  const h = makeHuman({ body: SHIRTS[cu.c % 8], band: HAIRS[cu.c % 8], hat: cu.v ? 'crown' : 'hair', apron: null, scale: 1.08 });
-  return { ...h, id: 'cu' + cu.id, cid: cu.id, dx: cu.x, dy: cu.y, da: cu.a, tx: cu.x, ty: cu.y, ta: cu.a, px: cu.x, py: cu.y, spd: 0, sit: false, p: { w: 0 }, say: null, pitch: 0.85 + ((cu.id * 37) % 60) / 100 };
+  const look = cu.k === 'ship' ? { body: '#16a34a', band: '#14532d', hat: 'cap' }
+    : cu.k === 'tam' ? { body: '#9b4dca', band: '#d9d9d9', hat: 'hair' }
+    : { body: SHIRTS[cu.c % 8], band: HAIRS[cu.c % 8], hat: cu.k === 'vip' ? 'crown' : 'hair' };
+  const h = makeHuman({ ...look, apron: null, scale: 1.08 });
+  if (cu.k === 'ship') h.hold.add(mesh(box(0.3, 0.22, 0.24), M('#c8a165'), 0, 0.06, 0));   // thùng giao hàng
+  const pitch = cu.k === 'tam' ? 1.35 : 0.85 + ((cu.id * 37) % 60) / 100;
+  return { ...h, id: 'cu' + cu.id, cid: cu.id, kind: cu.k, dx: cu.x, dy: cu.y, da: cu.a, tx: cu.x, ty: cu.y, ta: cu.a, px: cu.x, py: cu.y, spd: 0, sit: false, p: { w: 0, h: cu.k === 'ship' ? 1 : 0 }, say: null, pitch };
 }
 function makeRat() {
   const g = new THREE.Group(), fur = M('#7d838c');
@@ -1130,7 +1254,7 @@ function onSnap(m) {
 
   // HUD
   const sec = Math.ceil(m.time);
-  $('#timer').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  $('#timer').textContent = fmtTime(sec);
   $('#timer').classList.toggle('low', sec <= 30);
   if (phase === 'playing' && sec <= 10 && sec < lastSec && m.cd <= 0) SFX.tick();
   lastSec = sec;
@@ -1162,7 +1286,13 @@ function onSnap(m) {
 
 let chipsKey = '';
 function renderChips(m) {
-  const c = [`<span class="chip">⬆️ Cấp ${m.lvl}</span>`];
+  const c = [];
+  if (m.mode === 'daily') { const d = cfg.daily[m.mod]; c.push(`<span class="chip">🎯 ${d ? d.icon + ' ' + d.name : 'Thử thách'}</span>`); }
+  else {
+    c.push(`<span class="chip">📅 Ngày ${m.day}</span>`);
+    c.push(`<span class="chip ${m.earned >= m.target ? 'good' : ''}">🎯 ${m.earned}/${m.target}</span>`);
+  }
+  if (m.time <= 40 && m.time > 0) c.push('<span class="chip">🌙 Sắp đóng cửa</span>');
   const hands = (m.tb || []).filter(t => t.st === 'order').length;
   if (hands) c.push(`<span class="chip bad">🙋 ×${hands}</span>`);
   if (m.q?.length) c.push(`<span class="chip">⏳ Hàng chờ ×${m.q.length}</span>`);
@@ -1175,6 +1305,9 @@ function renderChips(m) {
   const fires = m.tl.filter(t => t[4]).length;
   if (fires) c.push(`<span class="chip bad">🔥 Cháy ×${fires}</span>`);
   if (m.dirt?.length >= 3) c.push(`<span class="chip bad">💩 ×${m.dirt.length}</span>`);
+  if (m.heat > 0) c.push(`<span class="chip bad">🥵 ${Math.ceil(m.heat)}s</span>`);
+  if (m.stock) c.push(`<span class="chip bad">📦 Hết ${EMO[m.stock.ing]} ${Math.ceil(m.stock.left)}s</span>`);
+  if (m.ship?.length) c.push(`<span class="chip bad">🛵 Shipper chờ ×${m.ship.length}</span>`);
   if (m.block > 0) c.push(`<span class="chip good">🧪 ${Math.ceil(m.block)}s</span>`);
   if (m.up?.license) c.push('<span class="chip good">📋</span>');
   const html = c.join('');
@@ -1192,8 +1325,8 @@ function renderOrders(orders) {
     if (!el) {
       const R = cfg.recipes[o.r];
       el = document.createElement('div');
-      el.className = 'order enter' + (o.vip ? ' vip' : '');
-      el.innerHTML = `<span class="tb">Bàn ${o.t}</span><div class="oi">${R.icon}</div><div class="op">${R.parts.map(p => PART_HTML[p]).join('')}</div><div class="ob"><i></i></div>`;
+      el.className = 'order enter' + (o.k ? ' ' + o.k : '');
+      el.innerHTML = `<span class="tb">${o.t ? `Bàn ${o.t}` : '🛵 Mang đi'}</span><div class="oi">${R.icon}</div><div class="op">${R.parts.map(p => PART_HTML[p]).join('')}</div><div class="ob"><i></i></div>`;
       el._bar = el.querySelector('.ob i');
       boxEl.appendChild(el);
       orderEls.set(o.id, el);
@@ -1247,6 +1380,22 @@ function onEvent(m) {
     case 'cooked': SFX.cooked(); break;
     case 'burnt': SFX.burnt(); toast('⚫ KHÉT NỒI RỒI!!!', 'bad'); break;
     case 'enter': SFX.door(); if (m.vip) toast('👑 Khách VIP vừa vào!', 'good'); break;
+    case 'day': {
+      const news = (m.news || []).map(k => `${cfg.events[k].icon} ${cfg.events[k].name}`).join(' · ');
+      if (m.mode === 'daily') { const d = cfg.daily[m.mod]; banner(`🎯 ${d.icon} ${d.name.toUpperCase()}`, `${d.desc}<br>Thử thách hôm nay · ${fmtTime(m.left)}`, '', 4200); }
+      else if (m.resumed) banner(`📂 NGÀY ${m.day} (CHƠI TIẾP)`, `Còn ${fmtTime(m.left)} · Chỉ tiêu 🎯 ${m.target}💰`, '', 3500);
+      else banner(`☀️ NGÀY ${m.day}`, `Chỉ tiêu 🎯 ${m.target}💰 · tối đa ${m.cap} khách cùng lúc${news ? `<br>Mới: ${news}` : ''}`, '', news ? 5000 : 3500);
+      SFX.level();
+      break;
+    }
+    case 'stun':
+      me.stun = m.dur;
+      me.vx = me.vy = 0;
+      toast('🗣️ Bị bà Tám níu lại tám chuyện!', 'bad');
+      vibrate([40, 30, 40]);
+      break;
+    case 'restock': toast(`📦 Có ${EMO[m.ing]} ${ING_NAME[m.ing]} lại rồi!`, 'good'); SFX.done(); break;
+    case 'cool': toast('🌤️ Hết nắng nóng rồi!', 'good'); break;
     case 'hand': SFX.hand(); toast(`🙋 Bàn ${m.tn} muốn gọi món!`); break;
     case 'order': {
       SFX.order();
@@ -1263,24 +1412,30 @@ function onEvent(m) {
     case 'deliver': pendingLeave = 'serve'; SFX.drop(); popup(tableWorld(m.tn), m.id ? '🍽️' : '🤵🍽️'); if (m.id === myId) vibrate(25); break;
     case 'pay':
       SFX.serve(); setTimeout(SFX.cash, 250);
-      toast(`💵 Bàn ${m.tn} trả ${m.pts}💰${m.vip ? ' 👑' : ''} · +${m.bonus}s`, 'good');
-      popup(tableWorld(m.tn), `+${m.pts}💰 +${m.bonus}s`);
+      if (m.ship) {
+        pendingLeave = 'serve';
+        toast(`🛵 Giao đơn mang đi +${m.pts}💰`, 'good');
+        const v = [...custVis.values()].find(c => c.kind === 'ship');
+        if (v) popup([v.dx, 1.4, v.dy], `+${m.pts}💰`);
+      } else {
+        toast(`💵 Bàn ${m.tn} trả ${m.pts}💰${m.vip ? ' 👑' : m.kind === 'bday' ? ' 🎂' : ''}`, 'good');
+        popup(tableWorld(m.tn), `+${m.pts}💰`);
+      }
       break;
     case 'angry':
       pendingLeave = 'fail';
       SFX.fail();
-      toast(m.tn ? `😡 Bàn ${m.tn} bỏ về! −${m.vip ? 15 : 10}❤️` : `😡 Khách xếp hàng bỏ về! −${m.vip ? 15 : 10}❤️`, 'bad');
+      toast(m.kind === 'ship' ? '😡 Shipper chờ lâu quá bỏ đi! −10❤️' : m.tn ? `😡 Bàn ${m.tn} bỏ về! −${m.vip ? 15 : 10}❤️` : `😡 Khách xếp hàng bỏ về! −${m.vip ? 15 : 10}❤️`, 'bad');
       vibrate([60, 40, 60]);
       break;
     case 'say': onSay(m); break;
     case 'event': onGameEvent(m); break;
-    case 'level': banner(`⬆️ CẤP ${m.lvl}!`, 'Khách đông hơn, nóng tính hơn, sự kiện dày hơn!', '', 2600); SFX.level(); break;
     case 'fire': SFX.burnt(); break;
     case 'extinguish': SFX.spray(); popup(tileWorld(m.i), '💨'); break;
     case 'whack': SFX.whack(); popup([m.x, 0.6, m.y], '💥'); vibrate(20); break;
     case 'ratDie':
       SFX.whack(); setTimeout(SFX.squeak, 80);
-      popup([m.x, 0.6, m.y], m.cat ? '🐱💥' : m.poison ? '☠️' : m.id === myId ? '💥 +3💰' : '💥');
+      popup([m.x, 0.6, m.y], m.cat ? '🐱💥' : m.poison ? '☠️' : m.id === myId ? `💥 +${m.n || 3}💰` : '💥');
       if (m.id === myId) vibrate(30);
       break;
     case 'ratEat': SFX.squeak(); popup(tileWorld(m.i), 'Ăn vụng! 🐀', true); break;
@@ -1316,7 +1471,7 @@ function onSay(m) {
   if (v) v.say = { text, mood, until: performance.now() + 2800 };
   // chỉ đọc to khi khách ở gần mình (hoặc lúc bỏ về) để khỏi ồn
   const near = !v || Math.hypot(v.dx - me.x, v.dy - me.y) < 10 || camMode === 'overview';
-  if (near || m.k === 'leave') speak(text, v ? v.pitch : 1, mood, m.k === 'leave' || m.k === 'angry');
+  if (near || m.k === 'leave') speak(text, v ? v.pitch : 1, mood, m.k === 'leave' || m.k === 'angry' || m.k === 'tam');
 }
 
 function onGameEvent(m) {
@@ -1332,10 +1487,15 @@ function onGameEvent(m) {
       SFX.squeak(); setTimeout(SFX.squeak, 200);
       break;
     case 'rush': banner('🔥 GIỜ CAO ĐIỂM!', 'Khách kéo tới gấp đôi, tiền x1.5 trong 40s'); SFX.level(); break;
-    case 'vip': banner('👑 KHÁCH VIP!', 'Tiền x3, cộng gấp đôi giờ, nhưng nóng tính lắm!'); break;
+    case 'vip': banner('👑 KHÁCH VIP!', 'Trả tiền x3 nhưng nóng tính lắm, ưu tiên phục vụ trước!'); break;
     case 'fire': banner('🧯 CHÁY LÒ!!!', 'Mua bình cứu hỏa 🛒, cầm rồi bấm 🧯 Xịt. Lửa sẽ lan!', 'bad', 3200); SFX.alarm(); vibrate([80, 60, 80]); break;
     case 'outage': banner('🔌 CÚP ĐIỆN!', `Bếp tắt ${Math.round(m.dur)}s · mua 🔋 máy phát để khỏi lo`, 'bad'); SFX.powerDown(); break;
     case 'insp': banner('🕵️ THANH TRA TỚI!', '35s để dọn: chuột, lửa, sàn bẩn 💩, bàn bẩn, đĩa bẩn', 'bad', 3200); SFX.whistle(); break;
+    case 'bday': banner('🎂 TIỆC SINH NHẬT!', 'Bàn 2 người, trả tiền gấp đôi. Hát lên nào 🎉', 'good'); SFX.level(); break;
+    case 'tam': banner('🗣️ BÀ TÁM TỚI QUÁN!', 'Đi ngang bàn bà là bị níu lại tám chuyện. Né ra!', 'bad', 3200); SFX.door(); break;
+    case 'ship': banner('🛵 SHIPPER TỚI!', `Đơn mang đi: ${cfg.recipes[m.r].icon} ${cfg.recipes[m.r].name}. Cầm món ra cửa, đứng gần bấm 🛵 Giao`); SFX.hand(); break;
+    case 'heat': banner('🥵 NẮNG NÓNG!', `Khách mất kiên nhẫn nhanh hơn trong ${m.dur}s · 🧊 mời trà đá trong 🛒`, 'bad'); SFX.alarm(); break;
+    case 'stock': banner(`📦 HẾT ${ING_NAME[m.ing].toUpperCase()}!`, `Thùng ${EMO[m.ing]} trống trơn ${m.dur}s · 📞 gọi giao gấp trong 🛒`, 'bad'); SFX.fail(); break;
   }
 }
 
@@ -1484,9 +1644,9 @@ addEventListener('blur', () => keys.clear());
 document.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
 
-let target = -1, actAnim = 0, ratTarget = null;
+let target = -1, actAnim = 0, ratTarget = null, shipTarget = null;
 function doAct() {
-  if (phase !== 'playing' || (target < 0 && !ratTarget)) return;
+  if (phase !== 'playing' || (target < 0 && !ratTarget && !shipTarget)) return;
   send({ t: 'act', x: target >= 0 ? target % MW : -1, y: target >= 0 ? (target / MW) | 0 : -1 });
   actAnim = 0.15;
 }
@@ -1495,7 +1655,7 @@ function doWork() {
   send({ t: 'work', x: target % MW, y: (target / MW) | 0 });
 }
 function doDash() {
-  if (phase !== 'playing' || me.dashCD > 0 || !me.inited) return;
+  if (phase !== 'playing' || me.dashCD > 0 || !me.inited || me.stun > 0) return;
   me.dashT = 0.15; me.dashCD = 0.8;
   SFX.dash(); vibrate(15);
 }
@@ -1528,6 +1688,7 @@ function updateMe(dt) {
   if (keys.has('KeyD') || keys.has('ArrowRight')) ix += 1;
   if (keys.has('KeyW') || keys.has('ArrowUp')) iy -= 1;
   if (keys.has('KeyS') || keys.has('ArrowDown')) iy += 1;
+  if (me.stun > 0) { me.stun -= dt; ix = iy = 0; }   // bị bà Tám níu lại
   let mag = Math.hypot(ix, iy);
   if (mag > 1) { ix /= mag; iy /= mag; mag = 1; }
   if (mag < 0.15) { ix = iy = 0; mag = 0; }
@@ -1588,6 +1749,14 @@ function findTarget() {
   }
   return best;
 }
+// shipper đang chờ đơn ở gần mình (server tự nhận ra khi mình bấm ✋)
+function findShipper() {
+  for (const s of snap?.ship || []) {
+    const v = custVis.get(s.c);
+    if (v && Math.hypot(v.dx - me.x, v.dy - me.y) < 1.4) return v;
+  }
+  return null;
+}
 function findRat() {
   const fx = Math.sin(me.a), fy = Math.cos(me.a);
   let best = null, bd = 1.1;
@@ -1606,7 +1775,8 @@ function updateButtons() {
   const ti = tableOf(target);
   const tb = ti >= 0 ? tableByTile.get(ti) : null;
   let ic = '✋', lb = 'Cầm';
-  if (ratTarget) { ic = '🔨'; lb = 'Đập'; }
+  if (shipTarget) { ic = '🛵'; lb = 'Giao'; }
+  else if (ratTarget) { ic = '🔨'; lb = 'Đập'; }
   else if (tb) {
     if (h?.k === 'plate' && h.c.length) { ic = '🍽️'; lb = 'Bưng'; }
     else if (tb.st === 'order') { ic = '📝'; lb = 'Ghi món'; }
@@ -1685,6 +1855,14 @@ function drawOverlays(now) {
   // khách nói
   for (const v of custVis.values()) {
     if (v.say && v.say.until > now) ov('cs' + v.id, v.dx, v.sit ? 1.45 : 1.6, v.dy, `<span class="bub cust m${v.say.mood}">${esc(v.say.text)}</span>`);
+    else if (v.kind === 'tam' && v.sit) ov('cs' + v.id, v.dx, 1.4, v.dy, '<span class="nm tam">🗣️ Bà Tám</span>');
+  }
+  // shipper chờ đơn
+  for (const s of snap?.ship || []) {
+    const v = custVis.get(s.c);
+    if (!v || (v.say && v.say.until > now)) continue;
+    ov('sh' + s.c, v.dx, 1.6, v.dy, `<div class="tbl ${s.p < 0.25 ? 'low' : s.p < 0.5 ? 'mid' : ''}"><span class="st">${cfg.recipes[s.r].icon}${bar(s.p)}</span><span class="nm ship">🛵 Shipper</span></div>`);
+    if (phase === 'playing' && camMode === 'follow') edge('es' + s.c, v.dx, 0.8, v.dy, '🛵', s.p < 0.35 ? 'bad' : '');
   }
   // hàng chờ
   for (const q of snap?.q || []) {
@@ -1701,7 +1879,7 @@ function drawOverlays(now) {
     else if (tb.st === 'wait') { st = `${tb.l.map(d => cfg.recipes[d].icon).join('')}${bar(tb.p)}`; cls = lv; }
     else if (tb.st === 'eat') st = '😋';
     else if (tb.st === 'dirty') st = `🍽️×${tb.d}`;
-    const vip = tb.v ? '👑 ' : '';
+    const vip = { vip: '👑 ', bday: '🎂 ', tam: '🗣️ ' }[tb.k] || '';
     ov('tb' + tb.num, x, 1.25, z, `<div class="tbl ${cls}">${st ? `<span class="st">${vip}${st}</span>` : ''}<span class="no">Bàn ${tb.num}</span></div>`);
     if (phase === 'playing' && camMode === 'follow') {
       if (tb.st === 'order') edge('eo' + tb.num, x, 0.8, z, `🙋${tb.num}`, tb.p < 0.35 ? 'bad' : '');
@@ -1747,7 +1925,8 @@ function drawOverlays(now) {
         } else if (s.item) ov('t' + i, p.x, p.y + 0.5, p.z, '<span>⚠️ Quầy ra món</span>', 'tag');
         break;
       case 'counter': case 'crate':
-        if (s.item?.k === 'plate' && s.item.c.length) ov('t' + i, p.x, p.y + 0.35, p.z, plateTag(s.item.c), 'tag');
+        if (info.type === 'crate' && snap?.stock && CRATE[MAP[(i / MW) | 0][i % MW]] === snap.stock.ing) ov('t' + i, p.x, p.y + 0.6, p.z, '<span>❌📦</span>', 'icon flash');
+        else if (s.item?.k === 'plate' && s.item.c.length) ov('t' + i, p.x, p.y + 0.35, p.z, plateTag(s.item.c), 'tag');
         else if (s.item?.k === 'ext') ov('t' + i, p.x, p.y + 0.6, p.z, `<span>🧯×${s.item.n}</span>`, 'tag');
         break;
     }
@@ -1811,8 +1990,9 @@ function frame(now) {
     updateMe(dt);
     sendPos(now);
     target = findTarget();
-    const hk = myState()?.h?.k;
+    const held = myState()?.h, hk = held?.k;
     ratTarget = !hk || hk === 'mop' ? findRat() : null;
+    shipTarget = hk === 'plate' && held.c.length ? findShipper() : null;
     updateButtons();
     actAnim = Math.max(0, actAnim - dt);
     const mine = myState();
@@ -1820,12 +2000,13 @@ function frame(now) {
       workSfxT -= dt;
       if (workSfxT <= 0) { workSfxT = 0.2; tiles[target]?.type === 'sink' ? SFX.wash() : SFX.chop(); }
     }
-  } else { target = -1; ratTarget = null; }
+  } else { target = -1; ratTarget = null; shipTarget = null; }
   updateCam(Math.min(1, dt * 6));
 
-  if (ratTarget) {
+  const ringOn = shipTarget || ratTarget;
+  if (ringOn) {
     ratRing.visible = true;
-    ratRing.position.set(ratTarget.dx, 0.02, ratTarget.dy);
+    ratRing.position.set(ringOn.dx, 0.02, ringOn.dy);
     ratRing.scale.setScalar(1 + Math.sin(t * 10) * 0.12);
   } else ratRing.visible = false;
 

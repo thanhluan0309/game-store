@@ -31,10 +31,11 @@
   <div id="stats">
     <div id="money" class="pill">💰 0</div>
     <div id="rep" class="pill"><span>❤️</span><div class="rbar"><i></i></div></div>
-    <div id="timer" class="pill">4:00</div>
+    <div id="timer" class="pill">10:00</div>
     <button id="btnShop" class="ibtn shopbtn" aria-label="Cửa hàng">🛒</button>
     <button id="btnMap" class="ibtn" aria-label="Xem toàn cảnh">🗺️</button>
     <button id="btnHelp" class="ibtn" aria-label="Cách chơi">?</button>
+    <button id="btnExit" class="ibtn" aria-label="Thoát">🚪</button>
   </div>
 </div>
 <div id="evchips" class="hidden"></div>
@@ -68,6 +69,7 @@
         <input id="codeIn" maxlength="4" placeholder="MÃ PHÒNG" autocomplete="off" autocapitalize="characters">
         <button id="btnJoin" class="btn">VÀO</button>
       </div>
+      <div id="saves" class="hidden"></div>
     </div>
   </div>
 </section>
@@ -94,9 +96,17 @@
     <div class="card lobby-right">
       <div class="plabel">Chọn vai của mày <small>(ai cũng làm được mọi việc, vai chỉ cho buff)</small></div>
       <div id="roles"></div>
-      <button id="btnStart" class="btn primary big">▶ VÀO BẾP!</button>
+      <div id="hostBox">
+        <div id="campInfo"></div>
+        <button id="btnStart" class="btn primary big">▶ VÀO BẾP!</button>
+        <button id="btnDaily" class="btn daily"></button>
+      </div>
       <div id="waitHost">⏳ Đợi chủ phòng 👑 bấm bắt đầu…</div>
-      <button id="btnRecipes" class="btn sm ghost">📖 Cách chơi & công thức</button>
+      <div class="row center wrap">
+        <button id="btnRecipes" class="btn sm ghost">📖 Cách chơi</button>
+        <button id="btnNew" class="btn sm ghost">🆕 Mở quán mới</button>
+        <button id="btnLeave" class="btn sm ghost">🚪 Rời phòng</button>
+      </div>
     </div>
   </div>
 </section>
@@ -104,16 +114,18 @@
 <!-- ============ END ============ -->
 <section id="end" class="screen hidden">
   <div class="card end-card">
-    <h2 id="endTitle">⏰ HẾT GIỜ!</h2>
+    <h2 id="endTitle">🌙 HẾT NGÀY 1</h2>
+    <div id="endSub"></div>
     <div id="stars"></div>
     <div id="finalScore"></div>
     <div id="endStats"></div>
-    <div id="endPlayers"></div>
-    <div class="row center" id="endBtns">
-      <button id="btnAgain" class="btn primary">🔁 Chơi lại</button>
+    <div id="titles"></div>
+    <div class="row center wrap" id="endBtns">
+      <button id="btnNext" class="btn primary">▶ Ngày 2</button>
       <button id="btnToLobby" class="btn">🏠 Phòng chờ</button>
+      <button id="btnSaveExit" class="btn">💾 Lưu & thoát</button>
     </div>
-    <div id="endWait">⏳ Đợi chủ phòng 👑…</div>
+    <div id="endWait">⏳ Đợi chủ phòng 👑… <button id="btnLeave2" class="btn sm ghost">🚪 Rời phòng</button></div>
   </div>
 </section>
 
@@ -143,7 +155,9 @@
           <li><b>🔪 Thái/Rửa</b>: đứng trước thớt có đồ sống, hoặc bồn có đĩa bẩn, bấm 1 lần là tự làm — <b>di chuyển là dừng</b>.</li>
           <li>Nồi/chảo để quá lâu sẽ <b>khét</b> ⚫ → tay không bấm Cầm để đổ đi.</li>
           <li>📢 La hét cho đồng đội, 💨 lướt cho nhanh, 🗺️ xem toàn cảnh nhà hàng.</li>
-          <li>Hết giờ hoặc <b>uy tín ❤️ về 0</b> là thua. Mỗi món giao xong được <b>cộng thêm giờ</b>!</li>
+          <li>📅 Mỗi <b>ngày dài 10 phút</b>. Hết ngày mà đạt <b>chỉ tiêu 🎯</b> thì sang ngày mới (tiền, nhân viên, nâng cấp giữ nguyên). Trượt chỉ tiêu hoặc <b>uy tín ❤️ về 0</b> thì phải làm lại ngày đó.</li>
+          <li>Ngày càng về sau khách càng đông, càng nóng tính, sự kiện mới lạ hơn. 40 giây cuối ngày quán ngừng nhận khách.</li>
+          <li>🚪 Chủ phòng bấm <b>Lưu & thoát</b> là cả phòng nghỉ; lần sau vào lại quán ở màn hình chính.</li>
           <li class="pc">Máy tính: <b>WASD</b> đi · <b>Space</b> cầm/đặt · <b>E</b> thái/rửa · <b>Shift</b> lướt · <b>1–8</b> la hét</li>
         </ul>
       </div>
@@ -156,12 +170,14 @@
         <p class="small">Bưng càng nhanh tip càng nhiều. Khách bỏ về: <b>−10 uy tín</b>.</p>
       </div>
       <div>
-        <h3>🎲 Sự kiện (từ phút thứ 3)</h3>
+        <h3>🎲 Sự kiện (mở dần theo ngày)</h3>
         <ul>
-          <li>🐀 <b>Chuột</b>: ăn vụng đồ trên bàn, ỉa bậy. Tay không đứng gần bấm <b>🔨 Đập</b>. Mua 🐱 mèo hoặc 🧪 thuốc.</li>
-          <li>🧯 <b>Cháy lò</b>: lửa lan dần. Mua bình cứu hỏa, cầm rồi bấm <b>Xịt</b>.</li>
-          <li>🕵️ <b>Thanh tra</b>: 30s để dọn sạch chuột, lửa, sàn bẩn 💩, đĩa bẩn. Đạt thì được thưởng, rớt thì bị phạt.</li>
-          <li>🔌 <b>Cúp điện</b>: bếp tắt · 🔥 <b>Giờ cao điểm</b>: khách đông, tiền x1.5 · 👑 <b>Khách VIP</b>: tiền x3, gấp lắm!</li>
+          <li><b>Ngày 2</b> 🐀 <b>Chuột</b>: ăn vụng đồ trên bàn, ỉa bậy. Tay không đứng gần bấm <b>🔨 Đập</b>. Mua 🐱 mèo hoặc 🧪 thuốc.</li>
+          <li><b>Ngày 3</b> 🔥 <b>Giờ cao điểm</b>: khách đông, tiền x1.5 · 👑 <b>Khách VIP</b>: tiền x3, gấp lắm!</li>
+          <li><b>Ngày 4</b> 🧯 <b>Cháy lò</b>: lửa lan dần, cầm bình cứu hỏa bấm <b>Xịt</b> · 🎂 <b>Tiệc sinh nhật</b>: bàn 2 người, tiền x2.</li>
+          <li><b>Ngày 5</b> 🔌 <b>Cúp điện</b>: bếp tắt · 📦 <b>Hết hàng</b>: một thùng nguyên liệu hết sạch 35s (📞 gọi giao gấp trong 🛒).</li>
+          <li><b>Ngày 6</b> 🕵️ <b>Thanh tra</b>: 35s để dọn sạch bếp · 🛵 <b>Shipper</b>: đứng ở cửa chờ đơn mang đi, cầm món tới gần bấm <b>🛵 Giao</b>.</li>
+          <li><b>Ngày 7</b> 🗣️ <b>Bà Tám</b>: đi ngang bàn bà là bị níu lại tám chuyện 2-3 giây · 🥵 <b>Nắng nóng</b>: khách mất kiên nhẫn nhanh (🧊 trà đá trong 🛒).</li>
           <li>🧹 Cầm cây lau nhà đi qua chỗ bẩn là sạch. Sàn bẩn làm đi chậm.</li>
           <li>👷 Nhân viên thuê trong 🛒 (🤵 bồi bàn bưng món + ghi món + dọn bàn, 📝 tiếp khách ghi món khéo, 🧽 rửa bát…). NV ghi món có thể làm khách vui 😊, chịu chờ lâu hơn. tự làm việc, <b>mỗi phút trả lương</b>. Hết tiền là họ nghỉ.</li>
         </ul>
@@ -170,6 +186,18 @@
           <button id="btnVoice" class="btn sm">🗣️ Giọng khách: Bật</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ THOÁT ============ -->
+<div id="exitModal" class="modal hidden">
+  <div class="card center-card exit-card">
+    <h3 id="exitTitle">🚪 Thoát?</h3>
+    <p id="exitText"></p>
+    <div class="row center">
+      <button id="btnExitYes" class="btn primary">Thoát</button>
+      <button id="btnExitNo" class="btn">Ở lại</button>
     </div>
   </div>
 </div>
